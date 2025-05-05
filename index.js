@@ -2,9 +2,11 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const { google } = require('googleapis');
-const creds = require('./service-account.json'); // файл ключа от Google
+const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 
-// Запуск клиента WhatsApp
+const SHEET_ID = '1CnEdE5-ybQJ0LcMbYvqVPT3bj5tVsB8rqBihCBqkyFU'; // 📄 ID таблицы
+
+// 🔄 Инициализация клиента WhatsApp
 const client = new Client({
   authStrategy: new LocalAuth()
 });
@@ -17,36 +19,39 @@ client.on('ready', () => {
   console.log('✅ Бот готов к приёму заявок!');
 });
 
-// Обработка сообщений
+// 📥 Обработка входящих сообщений
 client.on('message', async message => {
   if (!message.body) return;
 
-  const text = message.body;
+  const text = message.body.trim();
 
+  // 🧠 Парсинг данных
   const name = (text.match(/ФИО[:\-]?\s*(.+)/i) || [])[1];
-  const phone = (text.match(/Номер[:\-]?\s*(\d{10,})/i) || [])[1];
-  const operator = (text.match(/Оператор[:\-]?\s*(.+)/i) || [])[1];
+  const phoneRaw = (text.match(/Номер[:\-]?\s*(\d{10,})/i) || [])[1];
+  const operator = (text.match(/Оператор[:\-]?\s*(Мегафон|МТС|Билайн|Теле ?2|Т2)/i) || [])[1];
   const tariff = (text.match(/Тариф[:\-]?\s*(.+)/i) || [])[1];
-  const status = (text.match(/Статус[:\-]?\s*(.+)/i) || [])[1];
+  const status = (text.match(/Статус[:\-]?\s*(выполнен|на подключении|возврат)/i) || [])[1];
+
+  const formattedPhone = phoneRaw?.replace(/^8/, '9')?.replace(/^7/, '9')?.replace(/^9/, '9'); // формат 905...
 
   const data = {
-    name: name?.trim(),
-    phone: phone?.trim(),
-    operator: operator?.trim(),
-    tariff: tariff?.trim(),
-    status: status?.trim()
+    name: name?.trim() || '',
+    phone: formattedPhone || 'новый номер',
+    operator: operator?.trim() || '',
+    tariff: tariff?.trim() || '',
+    status: (status?.trim() || 'на подключении')
   };
 
   try {
     await addToSheet(data);
-    await message.reply('✅ Заявка добавлена в таблицу');
+    await message.reply('✅ Заявка добавлена в таблицу!');
   } catch (err) {
     console.error('❌ Ошибка при добавлении:', err);
-    await message.reply('⚠️ Ошибка при добавлении в таблицу');
+    await message.reply('⚠️ Произошла ошибка при добавлении в таблицу.');
   }
 });
 
-// Функция добавления в Google Таблицу
+// 📤 Функция добавления в Google Таблицу
 async function addToSheet(data) {
   const auth = new google.auth.GoogleAuth({
     credentials: creds,
@@ -56,26 +61,26 @@ async function addToSheet(data) {
   const sheets = google.sheets({ version: 'v4', auth });
 
   const values = [[
-    new Date().toLocaleDateString('ru-RU'),        // A — дата
-    data.name || "",                               // B — ФИО
-    "",                                             // C
-    data.phone || "новый номер",                   // D — номер
-    "",                                             // E
-    data.operator || "",                           // F — оператор
-    data.tariff || "",                             // G — описание тарифа
-    "", "", "",                                     // H, I, J
-    data.status || ""                              // K — статус
+    new Date().toLocaleDateString('ru-RU'), // A — дата
+    data.name,                              // B — ФИО
+    "",                                     // C
+    data.phone,                             // D — номер
+    "",                                     // E
+    data.operator,                          // F — оператор
+    data.tariff,                            // G — тариф
+    "", "", "",                             // H, I, J
+    data.status                             // K — статус
   ]];
 
   await sheets.spreadsheets.values.append({
-    spreadsheetId: '1CnEdE5-ybQJ0LcMbYvqVPT3bj5tVsB8rqBihCBqkyFU', // замени на ID твоей таблицы
+    spreadsheetId: SHEET_ID,
     range: 'Лист1!A:K',
     valueInputOption: 'USER_ENTERED',
     requestBody: { values },
   });
 
-  console.log("📌 Заявка успешно добавлена:", values[0]);
+  console.log("📌 Заявка добавлена:", values[0]);
 }
 
-// Инициализация
+// 🚀 Запуск бота
 client.initialize();
